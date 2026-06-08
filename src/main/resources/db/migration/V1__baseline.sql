@@ -8,7 +8,7 @@ CREATE TABLE "user" (
     name         VARCHAR(255) NOT NULL,
     username     VARCHAR(20)  UNIQUE,
     avatar_url   VARCHAR(500),
-    provider     VARCHAR(10)  NOT NULL CHECK (provider IN ('google', 'apple')),
+    provider     VARCHAR(10)  NOT NULL CHECK (provider IN ('google')),
     provider_id  VARCHAR(255) NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -116,7 +116,7 @@ CREATE TABLE push_token (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     token      VARCHAR(500) NOT NULL,
-    platform   VARCHAR(10)  NOT NULL CHECK (platform IN ('ios', 'android')),
+    platform   VARCHAR(10)  NOT NULL CHECK (platform IN ('android')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, platform)

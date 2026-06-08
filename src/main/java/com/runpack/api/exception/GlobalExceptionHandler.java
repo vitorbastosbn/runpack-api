@@ -27,6 +27,11 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException ex) {
+        return error(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(BadRequestException ex) {
         return error(HttpStatus.BAD_REQUEST, ex.getMessage());
