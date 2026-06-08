@@ -1,0 +1,195 @@
+package com.runpack.api.service;
+
+import com.runpack.api.dto.request.CreateGroupRequest;
+import com.runpack.api.dto.request.UpdateGroupRequest;
+import com.runpack.api.dto.response.GroupMemberResponse;
+import com.runpack.api.dto.response.GroupResponse;
+import com.runpack.api.entity.Group;
+import com.runpack.api.entity.GroupMember;
+import com.runpack.api.entity.User;
+import com.runpack.api.exception.BadRequestException;
+import com.runpack.api.exception.ConflictException;
+import com.runpack.api.exception.ForbiddenException;
+import com.runpack.api.exception.NotFoundException;
+import com.runpack.api.repository.GroupMemberRepository;
+import com.runpack.api.repository.GroupRepository;
+import com.runpack.api.repository.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@Transactional(readOnly = true)
+public class GroupService {
+
+    private static final int MAX_MEMBERS = 50;
+    private static final int MAX_GROUPS_PER_USER = 10;
+
+    private final GroupRepository groupRepository;
+    private final GroupMemberRepository groupMemberRepository;
+    private final UserRepository userRepository;
+
+    public GroupService(GroupRepository groupRepository,
+                        GroupMemberRepository groupMemberRepository,
+                        UserRepository userRepository) {
+        this.groupRepository = groupRepository;
+        this.groupMemberRepository = groupMemberRepository;
+        this.userRepository = userRepository;
+    }
+
+    public List<GroupResponse> getGroups(UUID userId) {
+        return groupRepository.findAllByMemberId(userId).stream()
+                .map(g -> toResponse(g, userId))
+                .toList();
+    }
+
+    @Transactional
+    public GroupResponse createGroup(UUID userId, CreateGroupRequest request) {
+        if (groupRepository.countByMemberId(userId) >= MAX_GROUPS_PER_USER) {
+            throw new BadRequestException("Limite de " + MAX_GROUPS_PER_USER + " grupos atingido");
+        }
+        User creator = findUser(userId);
+        Group group = new Group();
+        group.setName(request.name());
+        group.setDescription(request.description());
+        group.setImageUrl(request.imageUrl());
+        group.setCreator(creator);
+        group = groupRepository.save(group);
+
+        GroupMember member = new GroupMember();
+        member.setGroup(group);
+        member.setUser(creator);
+        member.setRole(GroupMember.Role.admin);
+        groupMemberRepository.save(member);
+
+        return toResponse(group, userId);
+    }
+
+    public GroupResponse getGroup(UUID groupId, UUID userId) {
+        Group group = findGroup(groupId);
+        requireMember(groupId, userId);
+        return toResponse(group, userId);
+    }
+
+    @Transactional
+    public GroupResponse updateGroup(UUID groupId, UUID userId, UpdateGroupRequest request) {
+        Group group = findGroup(groupId);
+        requireAdmin(groupId, userId);
+        if (request.name() != null && !request.name().isBlank()) group.setName(request.name());
+        if (request.description() != null) group.setDescription(request.description());
+        if (request.imageUrl() != null) group.setImageUrl(request.imageUrl());
+        return toResponse(group, userId);
+    }
+
+    @Transactional
+    public void deleteGroup(UUID groupId, UUID userId) {
+        findGroup(groupId);
+        requireAdmin(groupId, userId);
+        groupRepository.deleteById(groupId);
+    }
+
+    public List<GroupMemberResponse> getMembers(UUID groupId, UUID userId) {
+        findGroup(groupId);
+        requireMember(groupId, userId);
+        return groupMemberRepository.findByGroup_IdOrderByJoinedAtAsc(groupId).stream()
+                .map(this::toMemberResponse)
+                .toList();
+    }
+
+    @Transactional
+    public GroupMemberResponse addMember(UUID groupId, UUID userId, UUID targetUserId) {
+        findGroup(groupId);
+        requireAdmin(groupId, userId);
+        if (groupMemberRepository.existsByGroup_IdAndUser_Id(groupId, targetUserId)) {
+            throw new ConflictException("Usuário já é membro do grupo");
+        }
+        if (groupRepository.countMembers(groupId) >= MAX_MEMBERS) {
+            throw new BadRequestException("Limite de " + MAX_MEMBERS + " membros atingido");
+        }
+        User target = findUser(targetUserId);
+        Group group = findGroup(groupId);
+        GroupMember member = new GroupMember();
+        member.setGroup(group);
+        member.setUser(target);
+        member.setRole(GroupMember.Role.member);
+        return toMemberResponse(groupMemberRepository.save(member));
+    }
+
+    @Transactional
+    public void removeMember(UUID groupId, UUID actorId, UUID targetUserId) {
+        findGroup(groupId);
+        if (actorId.equals(targetUserId)) {
+            leaveGroup(groupId, actorId);
+            return;
+        }
+        requireAdmin(groupId, actorId);
+        GroupMember target = groupMemberRepository.findByGroup_IdAndUser_Id(groupId, targetUserId)
+                .orElseThrow(() -> new NotFoundException("Membro não encontrado"));
+        groupMemberRepository.delete(target);
+    }
+
+    @Transactional
+    public GroupMemberResponse updateMemberRole(UUID groupId, UUID actorId, UUID targetUserId, String roleStr) {
+        findGroup(groupId);
+        requireAdmin(groupId, actorId);
+        GroupMember target = groupMemberRepository.findByGroup_IdAndUser_Id(groupId, targetUserId)
+                .orElseThrow(() -> new NotFoundException("Membro não encontrado"));
+        GroupMember.Role newRole = switch (roleStr) {
+            case "admin" -> GroupMember.Role.admin;
+            case "member" -> GroupMember.Role.member;
+            default -> throw new BadRequestException("Role inválido: " + roleStr);
+        };
+        target.setRole(newRole);
+        return toMemberResponse(target);
+    }
+
+    private void leaveGroup(UUID groupId, UUID userId) {
+        GroupMember member = groupMemberRepository.findByGroup_IdAndUser_Id(groupId, userId)
+                .orElseThrow(() -> new NotFoundException("Você não é membro deste grupo"));
+        if (member.getRole() == GroupMember.Role.admin) {
+            long adminCount = groupMemberRepository.countByGroup_IdAndRole(groupId, GroupMember.Role.admin);
+            if (adminCount <= 1) {
+                throw new BadRequestException("Transfira o papel de admin antes de sair");
+            }
+        }
+        groupMemberRepository.delete(member);
+    }
+
+    private GroupMember requireAdmin(UUID groupId, UUID userId) {
+        GroupMember member = groupMemberRepository.findByGroup_IdAndUser_Id(groupId, userId)
+                .orElseThrow(() -> new ForbiddenException("Acesso negado"));
+        if (member.getRole() != GroupMember.Role.admin) {
+            throw new ForbiddenException("Apenas admins podem realizar esta ação");
+        }
+        return member;
+    }
+
+    private void requireMember(UUID groupId, UUID userId) {
+        if (!groupMemberRepository.existsByGroup_IdAndUser_Id(groupId, userId)) {
+            throw new ForbiddenException("Acesso negado");
+        }
+    }
+
+    private Group findGroup(UUID id) {
+        return groupRepository.findById(id).orElseThrow(() -> new NotFoundException("Grupo não encontrado"));
+    }
+
+    private User findUser(UUID id) {
+        return userRepository.findById(id).orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
+    }
+
+    private GroupResponse toResponse(Group g, UUID currentUserId) {
+        String myRole = groupMemberRepository.findByGroup_IdAndUser_Id(g.getId(), currentUserId)
+                .map(m -> m.getRole().name())
+                .orElse("none");
+        int memberCount = (int) groupRepository.countMembers(g.getId());
+        return new GroupResponse(g.getId(), g.getName(), g.getDescription(), g.getImageUrl(), memberCount, myRole, g.getCreatedAt());
+    }
+
+    private GroupMemberResponse toMemberResponse(GroupMember m) {
+        User u = m.getUser();
+        return new GroupMemberResponse(m.getId(), u.getId(), u.getName(), u.getUsername(), u.getAvatarUrl(), m.getRole().name(), m.getJoinedAt());
+    }
+}

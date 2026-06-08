@@ -11,9 +11,15 @@ import com.runpack.api.service.OidcVerificationService.OidcClaims;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.text.Normalizer;
+
 @Service
 @Transactional
 public class AuthService {
+
+    private static final String ALPHANUMERIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OidcVerificationService oidcVerificationService;
     private final UserRepository userRepository;
@@ -53,14 +59,15 @@ public class AuthService {
         if (user == null) {
             user = new User();
             user.setEmail(claims.email());
-            user.setName(claims.name() != null ? claims.name() : claims.email());
+            String name = claims.name() != null ? claims.name() : claims.email();
+            user.setName(name);
             user.setAvatarUrl(claims.pictureUrl());
             user.setProvider(provider);
             user.setProviderId(claims.providerId());
+            user.setUsername(generateUniqueUsername(name));
             user = userRepository.save(user);
             isNewUser = true;
         } else {
-            // Update provider link if user was found by email
             if (user.getProviderId() == null || !user.getProviderId().equals(claims.providerId())) {
                 user.setProviderId(claims.providerId());
                 user.setProvider(provider);
@@ -70,5 +77,35 @@ public class AuthService {
         String jwt = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getUsername());
 
         return new AuthResponse(jwt, isNewUser, user.getId().toString(), user.getEmail(), user.getUsername());
+    }
+
+    private String generateUniqueUsername(String name) {
+        String slug = slugify(name);
+        if (slug.isEmpty()) slug = "user";
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            String candidate = slug + "#" + randomSuffix(4);
+            if (!userRepository.existsByUsername(candidate)) {
+                return candidate;
+            }
+        }
+        // fallback: longer suffix to virtually guarantee uniqueness
+        return slug + "#" + randomSuffix(8);
+    }
+
+    private String slugify(String name) {
+        String normalized = Normalizer.normalize(name, Normalizer.Form.NFD);
+        return normalized
+                .replaceAll("\\p{M}", "")       // remove combining marks (accents)
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]", "");    // keep only lowercase alphanumeric
+    }
+
+    private String randomSuffix(int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(ALPHANUMERIC.charAt(RANDOM.nextInt(ALPHANUMERIC.length())));
+        }
+        return sb.toString();
     }
 }
