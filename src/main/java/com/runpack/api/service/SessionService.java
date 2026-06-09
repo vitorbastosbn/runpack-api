@@ -141,6 +141,18 @@ public class SessionService {
         return toResponse(session, participant.getJoinedAt(), userId);
     }
 
+    /** Active runs in the groups the user belongs to (for the home + dedicated screen). */
+    public List<com.runpack.api.dto.response.ActiveRunResponse> getActiveGroupRuns(UUID userId) {
+        return sessionRepository.findActiveGroupSessionsForUser(userId).stream()
+            .map(s -> new com.runpack.api.dto.response.ActiveRunResponse(
+                s.getId().toString(),
+                s.getGroup().getId().toString(),
+                s.getGroup().getName(),
+                (int) participantRepository.countBySessionIdAndLeftAtIsNull(s.getId()),
+                s.getStartedAt()))
+            .toList();
+    }
+
     public SessionDetailResponse getSession(UUID sessionId, UUID currentUserId) {
         Session session = sessionRepository.findById(sessionId)
             .orElseThrow(() -> new NotFoundException("Sessão não encontrada"));

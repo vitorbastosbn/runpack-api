@@ -20,6 +20,15 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
 
     @Query("""
         SELECT s FROM Session s
+        JOIN s.group g
+        JOIN GroupMember gm ON gm.group.id = g.id
+        WHERE gm.user.id = :userId AND s.status = 'active'
+        ORDER BY s.startedAt DESC
+        """)
+    java.util.List<Session> findActiveGroupSessionsForUser(@Param("userId") UUID userId);
+
+    @Query("""
+        SELECT s FROM Session s
         JOIN SessionParticipant sp ON sp.session.id = s.id
         WHERE sp.user.id = :userId AND s.status = 'finished'
         ORDER BY s.finishedAt DESC
