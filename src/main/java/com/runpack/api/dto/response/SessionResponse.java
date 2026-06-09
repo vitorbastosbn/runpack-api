@@ -11,5 +11,6 @@ public record SessionResponse(
     Instant joinedAt,
     Instant finishedAt,
     int participantCount,
-    boolean isParticipant
+    boolean isParticipant,
+    Double distanceGoalM
 ) {}

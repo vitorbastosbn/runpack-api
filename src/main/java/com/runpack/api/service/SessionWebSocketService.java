@@ -8,14 +8,20 @@ import com.runpack.api.repository.SessionRepository;
 import com.runpack.api.repository.SessionTelemetryRepository;
 import com.runpack.api.repository.UserRepository;
 import com.runpack.api.websocket.dto.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class SessionWebSocketService {
 
+    private static final Logger log = LoggerFactory.getLogger(SessionWebSocketService.class);
     private static final Set<String> ALLOWED_EMOJIS = Set.of("🔥", "💪", "👏", "😤");
     private static final String RATE_KEY_PREFIX = "ws:rate:";
 
@@ -32,6 +39,10 @@ public class SessionWebSocketService {
     private final SessionTelemetryRepository telemetryRepository;
     private final UserRepository userRepository;
     private final RedisTemplate<String, String> redisTemplate;
+
+    // @Lazy breaks circular dependency: SessionService → SessionWebSocketService → SessionService
+    @Autowired @Lazy
+    private SessionService sessionService;
 
     public SessionWebSocketService(SimpMessagingTemplate messagingTemplate,
                                    SessionRepository sessionRepository,
@@ -49,19 +60,49 @@ public class SessionWebSocketService {
 
     @Transactional
     public void processTelemetry(String sessionId, String userId, TelemetryMessage message) {
+        log.info("[WS-DBG] processTelemetry ENTER session={} user={} distanceM={} elapsedMs={}",
+            sessionId, userId, message.distanceM(), message.elapsedMs());
+        // Rate-limit: max 1 msg/s per user. If Redis is unavailable, fail-open (proceed without limiting).
         String rateKey = RATE_KEY_PREFIX + sessionId + ":" + userId;
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(rateKey, "1", Duration.ofSeconds(1));
-        if (!Boolean.TRUE.equals(isNew)) return;
+        try {
+            Boolean isNew = redisTemplate.opsForValue().setIfAbsent(rateKey, "1", Duration.ofSeconds(1));
+            if (!Boolean.TRUE.equals(isNew)) {
+                log.info("[WS-DBG] DROP rate-limited session={} user={}", sessionId, userId);
+                return;
+            }
+        } catch (Exception e) {
+            log.warn("[WS-DBG] Redis unavailable, fail-open: {}", e.getMessage());
+            // Redis down — proceed without rate limiting
+        }
 
         UUID sid = UUID.fromString(sessionId);
         UUID uid = UUID.fromString(userId);
 
         Session session = sessionRepository.findById(sid).orElse(null);
-        if (session == null || session.getStatus() != Session.Status.active) return;
-        if (!participantRepository.existsBySessionIdAndUserId(sid, uid)) return;
+        if (session == null) {
+            log.info("[WS-DBG] DROP session not found {}", sessionId);
+            return;
+        }
+        // Accept telemetry for active sessions and sessions finished within the last 10 seconds
+        // (race: mobile sends final telemetry just before HTTP finishSession arrives)
+        boolean sessionAcceptsTelemetry = session.getStatus() == Session.Status.active
+            || (session.getStatus() == Session.Status.finished
+                && session.getFinishedAt() != null
+                && session.getFinishedAt().isAfter(Instant.now().minusSeconds(10)));
+        if (!sessionAcceptsTelemetry) {
+            log.info("[WS-DBG] DROP session not accepting telemetry status={}", session.getStatus());
+            return;
+        }
+        if (!participantRepository.existsBySessionIdAndUserId(sid, uid)) {
+            log.info("[WS-DBG] DROP user not participant session={} user={}", sessionId, userId);
+            return;
+        }
 
         User user = userRepository.findById(uid).orElse(null);
-        if (user == null) return;
+        if (user == null) {
+            log.info("[WS-DBG] DROP user not found {}", userId);
+            return;
+        }
 
         SessionTelemetry telemetry = new SessionTelemetry();
         telemetry.setSession(session);
@@ -70,8 +111,41 @@ public class SessionWebSocketService {
         telemetry.setDistanceM(message.distanceM() != null ? message.distanceM() : 0.0);
         telemetry.setPaceSKm(message.paceSKm() != null ? message.paceSKm() : 0.0);
         telemetryRepository.save(telemetry);
+        log.info("[WS-DBG] telemetry SAVED session={} user={}", sessionId, userId);
 
         publishRanking(sid);
+
+        // Distance goal check — wrapped in try-catch so any failure does NOT roll back
+        // the telemetry save and ranking publish above.
+        try {
+            if (session.getDistanceGoalM() != null
+                    && message.distanceM() != null
+                    && message.distanceM() >= session.getDistanceGoalM()) {
+
+                String topic = "/topic/session/" + sessionId;
+                messagingTemplate.convertAndSend(topic,
+                    new ParticipantCompletedEvent(userId, user.getUsername()));
+
+                // Check if all active participants have now reached the goal
+                long activePending = participantRepository.findBySessionId(sid).stream()
+                    .filter(p -> p.getLeftAt() == null)
+                    .filter(p -> {
+                        Optional<SessionTelemetry> latest = telemetryRepository
+                            .findTopBySessionIdAndUserIdOrderByRecordedAtDesc(sid, p.getUser().getId());
+                        return latest.isEmpty()
+                            || latest.get().getDistanceM() < session.getDistanceGoalM();
+                    })
+                    .count();
+
+                if (activePending == 0) {
+                    // Auto-finish via REQUIRES_NEW transaction so failures don't mark
+                    // processTelemetry's outer transaction as rollback-only.
+                    sessionService.tryAutoFinish(sid, session.getCreatedBy().getId());
+                }
+            }
+        } catch (Exception ignored) {
+            // Goal check / auto-finish failures are non-fatal — telemetry and ranking already committed.
+        }
     }
 
     public void processReaction(String sessionId, String userId, ReactionMessage message) {
@@ -129,5 +203,6 @@ public class SessionWebSocketService {
 
         String topic = "/topic/session/" + sessionId;
         messagingTemplate.convertAndSend(topic, new RankingUpdateEvent(entries));
+        log.info("[WS-DBG] PUBLISHED ranking_update topic={} entries={}", topic, entries.size());
     }
 }

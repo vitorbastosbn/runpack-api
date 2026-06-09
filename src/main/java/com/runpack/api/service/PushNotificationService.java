@@ -60,10 +60,10 @@ public class PushNotificationService {
             "runpack://friends");
     }
 
-    public void notifySessionStarted(UUID memberId, String groupName, UUID sessionId) {
-        send(memberId, "Corrida começou!",
+    public void notifySessionStarted(UUID memberId, String groupName, UUID groupId) {
+        send(memberId, "Corrida começou! 🏃",
             "O grupo " + groupName + " está correndo agora",
-            "runpack://sessions/" + sessionId);
+            "runpack://groups/" + groupId);
     }
 
     public void notifyAchievementUnlocked(UUID userId, String achievementName) {

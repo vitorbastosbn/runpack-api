@@ -11,8 +11,10 @@ import com.runpack.api.exception.BadRequestException;
 import com.runpack.api.exception.ConflictException;
 import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.NotFoundException;
+import com.runpack.api.entity.Session;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
+import com.runpack.api.repository.SessionRepository;
 import com.runpack.api.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,13 +32,16 @@ public class GroupService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
+    private final SessionRepository sessionRepository;
 
     public GroupService(GroupRepository groupRepository,
                         GroupMemberRepository groupMemberRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository,
+                        SessionRepository sessionRepository) {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.userRepository = userRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     public List<GroupResponse> getGroups(UUID userId) {
@@ -185,7 +190,10 @@ public class GroupService {
                 .map(m -> m.getRole().name())
                 .orElse("none");
         int memberCount = (int) groupRepository.countMembers(g.getId());
-        return new GroupResponse(g.getId(), g.getName(), g.getDescription(), g.getImageUrl(), memberCount, myRole, g.getCreatedAt());
+        String activeSessionId = sessionRepository.findByGroupIdAndStatus(g.getId(), Session.Status.active)
+                .map(s -> s.getId().toString())
+                .orElse(null);
+        return new GroupResponse(g.getId(), g.getName(), g.getDescription(), g.getImageUrl(), memberCount, myRole, g.getCreatedAt(), activeSessionId);
     }
 
     private GroupMemberResponse toMemberResponse(GroupMember m) {

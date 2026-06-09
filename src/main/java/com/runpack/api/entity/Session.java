@@ -33,6 +33,9 @@ public class Session {
 
     private Instant finishedAt;
 
+    @Column(name = "distance_goal_m")
+    private Double distanceGoalM;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

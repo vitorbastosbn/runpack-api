@@ -1,6 +1,7 @@
 package com.runpack.api.repository;
 
 import com.runpack.api.entity.UserAchievement;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,6 +11,7 @@ import java.util.UUID;
 
 public interface UserAchievementRepository extends JpaRepository<UserAchievement, UUID> {
 
+    @EntityGraph(attributePaths = "achievement")
     List<UserAchievement> findByUserIdOrderByUnlockedAtDesc(UUID userId);
 
     @Query("SELECT COUNT(ua) > 0 FROM UserAchievement ua WHERE ua.user.id = :userId AND ua.achievement.slug = :slug")

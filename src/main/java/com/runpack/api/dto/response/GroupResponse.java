@@ -10,5 +10,6 @@ public record GroupResponse(
         String imageUrl,
         int memberCount,
         String myRole,
-        Instant createdAt
+        Instant createdAt,
+        String activeSessionId
 ) {}

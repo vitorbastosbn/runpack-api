@@ -9,9 +9,6 @@ public record RunDetailResponse(
     String groupName,
     Instant startedAt,
     Instant finishedAt,
-    double myTotalDistanceM,
-    long myTotalTimeMs,
-    double myAvgPaceSkm,
-    int myFinalRank,
+    RunParticipantResult myResult,
     List<RunParticipantResult> participants
 ) {}

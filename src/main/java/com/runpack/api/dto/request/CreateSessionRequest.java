@@ -1,3 +1,3 @@
 package com.runpack.api.dto.request;
 
-public record CreateSessionRequest(String groupId) {}
+public record CreateSessionRequest(String groupId, Double distanceGoalM) {}

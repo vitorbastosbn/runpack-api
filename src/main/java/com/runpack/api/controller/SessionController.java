@@ -1,6 +1,7 @@
 package com.runpack.api.controller;
 
 import com.runpack.api.dto.request.CreateSessionRequest;
+import com.runpack.api.dto.request.FinishSessionRequest;
 import com.runpack.api.dto.response.SessionDetailResponse;
 import com.runpack.api.dto.response.SessionResponse;
 import com.runpack.api.security.CurrentUser;
@@ -41,8 +42,9 @@ public class SessionController {
 
     @PostMapping("/{id}/finish")
     public SessionDetailResponse finishSession(@CurrentUser UUID currentUserId,
-                                               @PathVariable UUID id) {
-        return sessionService.finishSession(id, currentUserId);
+                                               @PathVariable UUID id,
+                                               @RequestBody(required = false) FinishSessionRequest stats) {
+        return sessionService.finishSession(id, currentUserId, stats);
     }
 
     @DeleteMapping("/{id}/participants/me")

@@ -88,16 +88,25 @@ public class HistoryService {
             ))
             .toList();
 
+        RunParticipantResult myResultDto = myResult != null
+            ? new RunParticipantResult(
+                myResult.getUser().getId().toString(),
+                myResult.getUser().getName(),
+                myResult.getUser().getUsername(),
+                myResult.getUser().getAvatarUrl(),
+                myResult.getTotalDistanceM(),
+                myResult.getTotalTimeMs(),
+                myResult.getAvgPaceSkm(),
+                myResult.getFinalRank() != null ? myResult.getFinalRank() : 0)
+            : null;
+
         return new RunDetailResponse(
             session.getId().toString(),
             session.getGroup() != null ? session.getGroup().getId().toString() : null,
             session.getGroup() != null ? session.getGroup().getName() : null,
             session.getStartedAt(),
             session.getFinishedAt(),
-            myResult != null ? myResult.getTotalDistanceM() : 0.0,
-            myResult != null ? myResult.getTotalTimeMs() : 0L,
-            myResult != null ? myResult.getAvgPaceSkm() : 0.0,
-            myResult != null && myResult.getFinalRank() != null ? myResult.getFinalRank() : 0,
+            myResultDto,
             participants
         );
     }
