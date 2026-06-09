@@ -16,6 +16,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -138,9 +140,22 @@ public class SessionWebSocketService {
                     .count();
 
                 if (activePending == 0) {
-                    // Auto-finish via REQUIRES_NEW transaction so failures don't mark
-                    // processTelemetry's outer transaction as rollback-only.
-                    sessionService.tryAutoFinish(sid, session.getCreatedBy().getId());
+                    final UUID creatorId = session.getCreatedBy().getId();
+                    // Auto-finish AFTER this telemetry transaction commits. Running it inline
+                    // (even REQUIRES_NEW) would not see this user's just-saved goal-crossing
+                    // telemetry — it's still uncommitted — so calculateAndSaveResults would
+                    // persist a stale (smaller) distance for the triggering user. afterCommit
+                    // guarantees all telemetry is visible before computing final results.
+                    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                            @Override
+                            public void afterCommit() {
+                                sessionService.tryAutoFinish(sid, creatorId);
+                            }
+                        });
+                    } else {
+                        sessionService.tryAutoFinish(sid, creatorId);
+                    }
                 }
             }
         } catch (Exception ignored) {

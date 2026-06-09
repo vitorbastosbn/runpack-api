@@ -14,6 +14,10 @@ public interface SessionRepository extends JpaRepository<Session, UUID> {
 
     Optional<Session> findByGroupIdAndStatus(UUID groupId, Session.Status status);
 
+    Optional<Session> findTopByGroupIdAndStatusOrderByFinishedAtDesc(UUID groupId, Session.Status status);
+
+    java.util.List<Session> findByGroupIdAndStatusOrderByFinishedAtDesc(UUID groupId, Session.Status status);
+
     @Query("""
         SELECT s FROM Session s
         JOIN SessionParticipant sp ON sp.session.id = s.id

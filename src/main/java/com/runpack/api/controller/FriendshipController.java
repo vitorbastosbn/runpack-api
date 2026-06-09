@@ -6,6 +6,9 @@ import com.runpack.api.dto.response.FriendshipResponse;
 import com.runpack.api.security.CurrentUser;
 import com.runpack.api.service.FriendshipService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,13 +26,17 @@ public class FriendshipController {
     }
 
     @GetMapping
-    public ResponseEntity<List<FriendshipResponse>> getFriends(@CurrentUser UUID userId) {
-        return ResponseEntity.ok(friendshipService.getFriends(userId));
+    public ResponseEntity<Page<FriendshipResponse>> getFriends(
+            @CurrentUser UUID userId,
+            @PageableDefault(size = 10) Pageable pageable) {
+        return ResponseEntity.ok(friendshipService.getFriends(userId, pageable));
     }
 
     @GetMapping("/requests")
-    public ResponseEntity<List<FriendshipResponse>> getPendingRequests(@CurrentUser UUID userId) {
-        return ResponseEntity.ok(friendshipService.getPendingRequests(userId));
+    public ResponseEntity<Page<FriendshipResponse>> getPendingRequests(
+            @CurrentUser UUID userId,
+            @PageableDefault(size = 10) Pageable pageable) {
+        return ResponseEntity.ok(friendshipService.getPendingRequests(userId, pageable));
     }
 
     @GetMapping("/sent")

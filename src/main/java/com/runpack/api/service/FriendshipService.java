@@ -9,10 +9,11 @@ import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.NotFoundException;
 import com.runpack.api.repository.FriendshipRepository;
 import com.runpack.api.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,18 +33,14 @@ public class FriendshipService {
         this.pushService = pushService;
     }
 
-    public List<FriendshipResponse> getFriends(UUID userId) {
-        List<Friendship> asRequester = friendshipRepository.findByRequester_IdAndStatus(userId, Friendship.Status.accepted);
-        List<Friendship> asAddressee = friendshipRepository.findByAddressee_IdAndStatus(userId, Friendship.Status.accepted);
-        List<FriendshipResponse> result = new ArrayList<>();
-        for (Friendship f : asRequester) result.add(toResponse(f, userId));
-        for (Friendship f : asAddressee) result.add(toResponse(f, userId));
-        return result;
+    public Page<FriendshipResponse> getFriends(UUID userId, Pageable pageable) {
+        return friendshipRepository.findFriends(userId, Friendship.Status.accepted, pageable)
+            .map(f -> toResponse(f, userId));
     }
 
-    public List<FriendshipResponse> getPendingRequests(UUID userId) {
-        return friendshipRepository.findByAddressee_IdAndStatus(userId, Friendship.Status.pending)
-            .stream().map(f -> toResponse(f, userId)).toList();
+    public Page<FriendshipResponse> getPendingRequests(UUID userId, Pageable pageable) {
+        return friendshipRepository.findByAddressee_IdAndStatus(userId, Friendship.Status.pending, pageable)
+            .map(f -> toResponse(f, userId));
     }
 
     public List<FriendshipResponse> getSentRequests(UUID userId) {

@@ -2,10 +2,13 @@ package com.runpack.api.service;
 
 import com.runpack.api.dto.request.CreateGroupRequest;
 import com.runpack.api.dto.request.UpdateGroupRequest;
+import com.runpack.api.dto.response.GroupLastRunResponse;
 import com.runpack.api.dto.response.GroupMemberResponse;
 import com.runpack.api.dto.response.GroupResponse;
+import com.runpack.api.dto.response.GroupRunSummaryResponse;
 import com.runpack.api.entity.Group;
 import com.runpack.api.entity.GroupMember;
+import com.runpack.api.entity.RunResult;
 import com.runpack.api.entity.User;
 import com.runpack.api.exception.BadRequestException;
 import com.runpack.api.exception.ConflictException;
@@ -14,8 +17,11 @@ import com.runpack.api.exception.NotFoundException;
 import com.runpack.api.entity.Session;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
+import com.runpack.api.repository.RunResultRepository;
 import com.runpack.api.repository.SessionRepository;
 import com.runpack.api.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,21 +39,89 @@ public class GroupService {
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
     private final SessionRepository sessionRepository;
+    private final RunResultRepository runResultRepository;
 
     public GroupService(GroupRepository groupRepository,
                         GroupMemberRepository groupMemberRepository,
                         UserRepository userRepository,
-                        SessionRepository sessionRepository) {
+                        SessionRepository sessionRepository,
+                        RunResultRepository runResultRepository) {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
+        this.runResultRepository = runResultRepository;
     }
 
-    public List<GroupResponse> getGroups(UUID userId) {
-        return groupRepository.findAllByMemberId(userId).stream()
-                .map(g -> toResponse(g, userId))
-                .toList();
+    /**
+     * Top 3 of the group's most recent finished session. Returns null if the group has
+     * no finished sessions yet (controller maps that to 204 No Content).
+     */
+    public GroupLastRunResponse getLastRun(UUID groupId, UUID currentUserId) {
+        if (!groupMemberRepository.existsByGroup_IdAndUser_Id(groupId, currentUserId)) {
+            throw new ForbiddenException("Você não é membro deste grupo");
+        }
+        Session session = sessionRepository
+            .findTopByGroupIdAndStatusOrderByFinishedAtDesc(groupId, Session.Status.finished)
+            .orElse(null);
+        if (session == null) {
+            return null;
+        }
+        List<GroupLastRunResponse.PodiumEntry> podium = runResultRepository
+            .findBySessionIdOrderByFinalRankAsc(session.getId()).stream()
+            .limit(3)
+            .map(this::toPodiumEntry)
+            .toList();
+        if (podium.isEmpty()) {
+            return null;
+        }
+        return new GroupLastRunResponse(session.getId().toString(), session.getFinishedAt(), podium);
+    }
+
+    /** Finished runs of the group, newest first. Each item carries the winner summary. */
+    public List<GroupRunSummaryResponse> getRuns(UUID groupId, UUID currentUserId) {
+        if (!groupMemberRepository.existsByGroup_IdAndUser_Id(groupId, currentUserId)) {
+            throw new ForbiddenException("Você não é membro deste grupo");
+        }
+        return sessionRepository
+            .findByGroupIdAndStatusOrderByFinishedAtDesc(groupId, Session.Status.finished).stream()
+            .map(this::toRunSummary)
+            .toList();
+    }
+
+    private GroupRunSummaryResponse toRunSummary(Session session) {
+        List<RunResult> results = runResultRepository.findBySessionIdOrderByFinalRankAsc(session.getId());
+        RunResult winner = results.isEmpty() ? null : results.get(0);
+        return new GroupRunSummaryResponse(
+            session.getId().toString(),
+            session.getFinishedAt(),
+            results.size(),
+            session.getDistanceGoalM(),
+            winner != null ? winner.getUser().getName() : null,
+            winner != null ? winner.getUser().getUsername() : null,
+            winner != null ? winner.getUser().getAvatarUrl() : null,
+            winner != null ? winner.getTotalDistanceM() : null
+        );
+    }
+
+    private GroupLastRunResponse.PodiumEntry toPodiumEntry(RunResult r) {
+        User u = r.getUser();
+        return new GroupLastRunResponse.PodiumEntry(
+            u.getId().toString(),
+            u.getName(),
+            u.getUsername(),
+            u.getAvatarUrl(),
+            r.getTotalDistanceM(),
+            r.getFinalRank()
+        );
+    }
+
+    public Page<GroupResponse> getGroups(UUID userId, String query, Pageable pageable) {
+        String q = (query != null && !query.isBlank()) ? query.trim() : null;
+        var page = (q == null)
+            ? groupRepository.findAllByMemberId(userId, pageable)
+            : groupRepository.searchByMemberId(userId, q, pageable);
+        return page.map(g -> toResponse(g, userId));
     }
 
     @Transactional

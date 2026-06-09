@@ -4,11 +4,16 @@ import com.runpack.api.dto.request.AddMemberRequest;
 import com.runpack.api.dto.request.CreateGroupRequest;
 import com.runpack.api.dto.request.UpdateGroupRequest;
 import com.runpack.api.dto.request.UpdateMemberRoleRequest;
+import com.runpack.api.dto.response.GroupLastRunResponse;
 import com.runpack.api.dto.response.GroupMemberResponse;
 import com.runpack.api.dto.response.GroupResponse;
+import com.runpack.api.dto.response.GroupRunSummaryResponse;
 import com.runpack.api.security.CurrentUser;
 import com.runpack.api.service.GroupService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,8 +31,11 @@ public class GroupController {
     }
 
     @GetMapping
-    public ResponseEntity<List<GroupResponse>> getGroups(@CurrentUser UUID userId) {
-        return ResponseEntity.ok(groupService.getGroups(userId));
+    public ResponseEntity<Page<GroupResponse>> getGroups(
+            @CurrentUser UUID userId,
+            @RequestParam(required = false) String q,
+            @PageableDefault(size = 10) Pageable pageable) {
+        return ResponseEntity.ok(groupService.getGroups(userId, q, pageable));
     }
 
     @PostMapping
@@ -57,6 +65,17 @@ public class GroupController {
     @GetMapping("/{id}/members")
     public ResponseEntity<List<GroupMemberResponse>> getMembers(@PathVariable UUID id, @CurrentUser UUID userId) {
         return ResponseEntity.ok(groupService.getMembers(id, userId));
+    }
+
+    @GetMapping("/{id}/last-run")
+    public ResponseEntity<GroupLastRunResponse> getLastRun(@PathVariable UUID id, @CurrentUser UUID userId) {
+        GroupLastRunResponse lastRun = groupService.getLastRun(id, userId);
+        return lastRun == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(lastRun);
+    }
+
+    @GetMapping("/{id}/runs")
+    public ResponseEntity<List<GroupRunSummaryResponse>> getRuns(@PathVariable UUID id, @CurrentUser UUID userId) {
+        return ResponseEntity.ok(groupService.getRuns(id, userId));
     }
 
     @PostMapping("/{id}/members")
