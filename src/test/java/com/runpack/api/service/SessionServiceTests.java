@@ -1,7 +1,9 @@
 package com.runpack.api.service;
 
+import com.runpack.api.dto.request.CreateSessionRequest;
 import com.runpack.api.dto.request.FinishSessionRequest;
 import com.runpack.api.entity.Group;
+import com.runpack.api.entity.GroupMember;
 import com.runpack.api.entity.RunResult;
 import com.runpack.api.entity.Session;
 import com.runpack.api.entity.SessionParticipant;
@@ -41,6 +43,7 @@ class SessionServiceTests {
     private RunResultRepository runResultRepository;
     private UserRepository userRepository;
     private GroupMemberRepository groupMemberRepository;
+    private GroupRepository groupRepository;
     private SessionWebSocketService wsService;
     private AchievementService achievementService;
     private PushNotificationService pushService;
@@ -52,7 +55,7 @@ class SessionServiceTests {
         participantRepository = mock(SessionParticipantRepository.class);
         telemetryRepository = mock(SessionTelemetryRepository.class);
         runResultRepository = mock(RunResultRepository.class);
-        GroupRepository groupRepository = mock(GroupRepository.class);
+        groupRepository = mock(GroupRepository.class);
         groupMemberRepository = mock(GroupMemberRepository.class);
         userRepository = mock(UserRepository.class);
         wsService = mock(SessionWebSocketService.class);
@@ -152,6 +155,37 @@ class SessionServiceTests {
         assertThat(resultCaptor.getValue().getTotalDistanceM()).isZero();
     }
 
+    @Test
+    void createGroupSessionNotificationLinksToLiveSession() {
+        User creator = user("creator");
+        User member = user("member");
+        Group group = group(creator);
+        Session session = activeSession(creator, group, Instant.now());
+        GroupMember creatorMembership = groupMember(group, creator, GroupMember.Role.admin);
+        GroupMember memberMembership = groupMember(group, member, GroupMember.Role.member);
+
+        when(userRepository.findById(creator.getId())).thenReturn(Optional.of(creator));
+        when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
+        when(groupMemberRepository.existsByGroup_IdAndUser_Id(group.getId(), creator.getId())).thenReturn(true);
+        when(sessionRepository.findByGroupIdAndStatus(group.getId(), Session.Status.active)).thenReturn(Optional.empty());
+        when(sessionRepository.save(any(Session.class))).thenAnswer(invocation -> {
+            Session saved = invocation.getArgument(0);
+            saved.setId(session.getId());
+            return saved;
+        });
+        when(participantRepository.save(any(SessionParticipant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(groupMemberRepository.findByGroup_IdOrderByJoinedAtAsc(group.getId()))
+            .thenReturn(List.of(creatorMembership, memberMembership));
+
+        service.createSession(creator.getId(), new CreateSessionRequest(group.getId().toString(), null));
+
+        verify(pushService).notifySessionStarted(
+            member.getId(),
+            group.getName(),
+            session.getId()
+        );
+    }
+
     private User user(String username) {
         User user = new User();
         user.setId(UUID.randomUUID());
@@ -169,6 +203,16 @@ class SessionServiceTests {
         group.setName("Group");
         group.setCreator(creator);
         return group;
+    }
+
+    private GroupMember groupMember(Group group, User user, GroupMember.Role role) {
+        GroupMember member = new GroupMember();
+        member.setId(UUID.randomUUID());
+        member.setGroup(group);
+        member.setUser(user);
+        member.setRole(role);
+        member.setJoinedAt(Instant.now());
+        return member;
     }
 
     private Session activeSession(User creator, Group group, Instant startedAt) {

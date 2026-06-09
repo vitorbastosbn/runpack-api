@@ -99,7 +99,7 @@ public class SessionService {
             groupMemberRepository.findByGroup_IdOrderByJoinedAtAsc(finalGroup.getId()).stream()
                 .filter(m -> !m.getUser().getId().equals(creatorId))
                 .forEach(m -> pushService.notifySessionStarted(
-                    m.getUser().getId(), finalGroup.getName(), finalGroup.getId()));
+                    m.getUser().getId(), finalGroup.getName(), finalSession.getId()));
         }
 
         return toResponse(session, participant.getJoinedAt(), creatorId);

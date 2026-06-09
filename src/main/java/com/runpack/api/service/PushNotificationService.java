@@ -2,7 +2,9 @@ package com.runpack.api.service;
 
 import com.runpack.api.entity.PushToken;
 import com.runpack.api.repository.PushTokenRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -13,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class PushNotificationService {
 
     private static final String EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
@@ -30,10 +33,16 @@ public class PushNotificationService {
     @Async
     public void send(UUID recipientId, String title, String body, String deepLink) {
         int hour = ZonedDateTime.now(BRAZIL_ZONE).getHour();
-        if (hour >= 23 || hour < 7) return;
+        if (hour >= 23 || hour < 7) {
+            log.info("[push] skipped quiet hours recipient={}", recipientId);
+            return;
+        }
 
         List<PushToken> tokens = pushTokenRepository.findByUserId(recipientId);
-        if (tokens.isEmpty()) return;
+        if (tokens.isEmpty()) {
+            log.info("[push] no tokens recipient={}", recipientId);
+            return;
+        }
 
         tokens.forEach(pt -> {
             try {
@@ -43,8 +52,13 @@ public class PushNotificationService {
                     "body", body,
                     "data", Map.of("deepLink", deepLink)
                 );
-                restTemplate.postForObject(EXPO_PUSH_URL, payload, Map.class);
-            } catch (Exception ignored) {}
+                ResponseEntity<Map> response = restTemplate.postForEntity(EXPO_PUSH_URL, payload, Map.class);
+                log.info("[push] sent recipient={} status={} response={}",
+                    recipientId, response.getStatusCode(), response.getBody());
+            } catch (Exception e) {
+                log.warn("[push] failed recipient={} tokenId={}: {}",
+                    recipientId, pt.getId(), e.getMessage());
+            }
         });
     }
 
@@ -60,10 +74,10 @@ public class PushNotificationService {
             "runpack://friends");
     }
 
-    public void notifySessionStarted(UUID memberId, String groupName, UUID groupId) {
+    public void notifySessionStarted(UUID memberId, String groupName, UUID sessionId) {
         send(memberId, "Corrida começou! 🏃",
             "O grupo " + groupName + " está correndo agora",
-            "runpack://groups/" + groupId);
+            "runpack://sessions/" + sessionId);
     }
 
     public void notifyAchievementUnlocked(UUID userId, String achievementName) {
