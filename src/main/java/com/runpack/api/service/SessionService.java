@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -27,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SessionService {
 
     private static final int MAX_PARTICIPANTS = 20;
+    private static final Duration GROUP_JOIN_WINDOW = Duration.ofMinutes(15);
 
     private final SessionRepository sessionRepository;
     private final SessionParticipantRepository participantRepository;
@@ -117,6 +119,10 @@ public class SessionService {
         if (existing.isPresent()) {
             return toResponse(session, existing.get().getJoinedAt(), userId);
         }
+        if (isGroupSession(session) && isJoinWindowClosed(session)) {
+            finishExpiredGroupSessionIfSolo(session);
+            throw new BadRequestException("Janela de entrada encerrada");
+        }
         long activeCount = participantRepository.countBySessionIdAndLeftAtIsNull(sessionId);
         if (activeCount >= MAX_PARTICIPANTS) {
             throw new ConflictException("Sessão com número máximo de participantes");
@@ -162,8 +168,16 @@ public class SessionService {
             throw new ForbiddenException("Somente o criador ou admin do grupo pode encerrar a corrida");
         }
 
-        // Upsert final telemetry from HTTP body before calculating results
-        if (stats != null && stats.distanceM() != null && stats.distanceM() > 0) {
+        List<SessionParticipant> active = participantRepository.findBySessionId(sessionId)
+            .stream()
+            .filter(p -> p.getLeftAt() == null)
+            .toList();
+        boolean groupSoloSession = isGroupSession(session) && active.size() == 1;
+
+        // Upsert final telemetry from HTTP body before calculating results.
+        // Group runs with only creator are intentionally zeroed; individual stats are only allowed
+        // for instant runs started from home (group == null).
+        if (!groupSoloSession && stats != null && stats.distanceM() != null && stats.distanceM() > 0) {
             User user = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
             SessionTelemetry finalTelemetry = new SessionTelemetry();
@@ -179,17 +193,12 @@ public class SessionService {
         session.setStatus(Session.Status.finished);
         session.setFinishedAt(finishedAt);
 
-        List<SessionParticipant> active = participantRepository.findBySessionId(sessionId)
-            .stream()
-            .filter(p -> p.getLeftAt() == null)
-            .toList();
-
         for (SessionParticipant p : active) {
             p.setLeftAt(finishedAt);
         }
         participantRepository.saveAll(active);
 
-        calculateAndSaveResults(session, active);
+        calculateAndSaveResults(session, active, groupSoloSession);
 
         wsService.publishSessionFinished(sessionId.toString());
 
@@ -245,6 +254,29 @@ public class SessionService {
     }
 
     private void calculateAndSaveResults(Session session, List<SessionParticipant> participants) {
+        calculateAndSaveResults(session, participants, false);
+    }
+
+    private void calculateAndSaveResults(
+        Session session,
+        List<SessionParticipant> participants,
+        boolean forceZeroResults
+    ) {
+        if (forceZeroResults) {
+            AtomicInteger rank = new AtomicInteger(1);
+            for (SessionParticipant p : participants) {
+                RunResult result = new RunResult();
+                result.setSession(session);
+                result.setUser(p.getUser());
+                result.setTotalDistanceM(0.0);
+                result.setTotalTimeMs(0L);
+                result.setAvgPaceSkm(0.0);
+                result.setFinalRank(rank.getAndIncrement());
+                runResultRepository.save(result);
+            }
+            return;
+        }
+
         List<SessionTelemetry> latest = telemetryRepository.findLatestPerUserInSession(session.getId());
 
         latest.sort(Comparator
@@ -283,6 +315,35 @@ public class SessionService {
                 runResultRepository.save(result);
             }
         }
+    }
+
+    private boolean isGroupSession(Session session) {
+        return session.getGroup() != null;
+    }
+
+    private boolean isJoinWindowClosed(Session session) {
+        return session.getStartedAt() != null
+            && Instant.now().isAfter(session.getStartedAt().plus(GROUP_JOIN_WINDOW));
+    }
+
+    private void finishExpiredGroupSessionIfSolo(Session session) {
+        List<SessionParticipant> participants = participantRepository.findBySessionId(session.getId());
+        if (participants.size() != 1) {
+            return;
+        }
+
+        Instant finishedAt = Instant.now();
+        session.setStatus(Session.Status.finished);
+        session.setFinishedAt(finishedAt);
+
+        SessionParticipant participant = participants.get(0);
+        if (participant.getLeftAt() == null) {
+            participant.setLeftAt(finishedAt);
+            participantRepository.saveAll(List.of(participant));
+        }
+
+        calculateAndSaveResults(session, participants, true);
+        wsService.publishSessionFinished(session.getId().toString());
     }
 
     private SessionResponse toResponse(Session session, Instant joinedAt, UUID currentUserId) {
