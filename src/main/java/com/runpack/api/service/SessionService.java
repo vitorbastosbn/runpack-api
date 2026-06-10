@@ -108,8 +108,8 @@ public class SessionService {
                 .forEach(m -> pushService.notifySessionStarted(
                     m.getUser().getId(), finalGroup.getName(), finalSession.getId()));
         } else {
-            // Solo run — notify all friends
-            friendshipRepository.findFriendIds(creatorId)
+            // Solo run — notify only friends who follow this creator.
+            friendshipRepository.findFavoriteFriendIdsFollowingUser(creatorId)
                 .forEach(id -> pushService.notifyFriendRunStarted(
                     id, finalCreator.getName(), finalSession.getId()));
         }
@@ -157,7 +157,7 @@ public class SessionService {
             final Session finalSession = session;
             Set<UUID> joined = participantRepository.findBySessionId(sessionId)
                 .stream().map(p -> p.getUser().getId()).collect(Collectors.toSet());
-            friendshipRepository.findFriendIds(finalSession.getCreatedBy().getId()).stream()
+            friendshipRepository.findFavoriteFriendIdsFollowingUser(finalSession.getCreatedBy().getId()).stream()
                 .filter(id -> !joined.contains(id))
                 .forEach(id -> pushService.notifyFriendJoinedRun(
                     id, joinedUser.getName(), finalSession.getCreatedBy().getName(), finalSession.getId()));
@@ -173,7 +173,7 @@ public class SessionService {
                 .map(this::toActiveRunResponse)
                 .toList();
 
-        List<UUID> friendIds = friendshipRepository.findFriendIds(userId);
+        List<UUID> friendIds = friendshipRepository.findFavoriteFriendIdsForUser(userId);
         if (friendIds.isEmpty()) {
             return groupRuns;
         }

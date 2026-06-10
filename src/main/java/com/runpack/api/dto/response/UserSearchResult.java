@@ -8,5 +8,6 @@ public record UserSearchResult(
         String username,
         String avatarUrl,
         UUID friendshipId,
-        String relation
+        String relation,
+        boolean favorite
 ) {}

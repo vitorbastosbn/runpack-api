@@ -1,6 +1,7 @@
 package com.runpack.api.controller;
 
 import com.runpack.api.dto.request.SendFriendshipRequest;
+import com.runpack.api.dto.request.UpdateFriendFavoriteRequest;
 import com.runpack.api.dto.request.UpdateFriendshipRequest;
 import com.runpack.api.dto.response.FriendshipResponse;
 import com.runpack.api.security.CurrentUser;
@@ -55,6 +56,13 @@ public class FriendshipController {
                                                             @CurrentUser UUID userId,
                                                             @Valid @RequestBody UpdateFriendshipRequest request) {
         return ResponseEntity.ok(friendshipService.updateStatus(id, userId, request.status()));
+    }
+
+    @PatchMapping("/{id}/favorite")
+    public ResponseEntity<FriendshipResponse> updateFavorite(@PathVariable UUID id,
+                                                              @CurrentUser UUID userId,
+                                                              @Valid @RequestBody UpdateFriendFavoriteRequest request) {
+        return ResponseEntity.ok(friendshipService.updateFavorite(id, userId, request.favorite()));
     }
 
     @DeleteMapping("/{id}")

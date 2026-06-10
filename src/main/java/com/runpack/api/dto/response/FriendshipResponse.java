@@ -7,6 +7,7 @@ public record FriendshipResponse(
         UUID id,
         FriendUser user,
         String status,
+        boolean favorite,
         Instant createdAt
 ) {
     public record FriendUser(UUID id, String name, String username, String avatarUrl) {}

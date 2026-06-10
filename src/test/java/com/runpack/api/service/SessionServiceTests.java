@@ -190,6 +190,83 @@ class SessionServiceTests {
         );
     }
 
+    @Test
+    void createInstantSessionNotifiesOnlyFriendsWhoFavoriteCreator() {
+        User creator = user("creator");
+        User favoriteFriend = user("favorite");
+        User regularFriend = user("regular");
+        Session session = activeSession(creator, null, Instant.now());
+
+        when(userRepository.findById(creator.getId())).thenReturn(Optional.of(creator));
+        when(sessionRepository.save(any(Session.class))).thenAnswer(invocation -> {
+            Session saved = invocation.getArgument(0);
+            saved.setId(session.getId());
+            return saved;
+        });
+        when(participantRepository.save(any(SessionParticipant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(friendshipRepository.findFavoriteFriendIdsFollowingUser(creator.getId()))
+            .thenReturn(List.of(favoriteFriend.getId()));
+
+        service.createSession(creator.getId(), new CreateSessionRequest(null, null));
+
+        verify(pushService).notifyFriendRunStarted(favoriteFriend.getId(), creator.getName(), session.getId());
+        verify(pushService, never()).notifyFriendRunStarted(regularFriend.getId(), creator.getName(), session.getId());
+    }
+
+    @Test
+    void joinInstantSessionNotifiesOnlyFavoriteFriendsWhoHaveNotJoined() {
+        User creator = user("creator");
+        User joiner = user("joiner");
+        User favoriteWaiting = user("favorite-waiting");
+        User favoriteJoined = user("favorite-joined");
+        Session session = activeSession(creator, null, Instant.now());
+        SessionParticipant creatorParticipant = participant(session, creator);
+        SessionParticipant joinerParticipant = participant(session, joiner);
+        SessionParticipant favoriteJoinedParticipant = participant(session, favoriteJoined);
+
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findBySessionIdAndUserId(session.getId(), joiner.getId())).thenReturn(Optional.empty());
+        when(participantRepository.countBySessionIdAndLeftAtIsNull(session.getId())).thenReturn(1L);
+        when(userRepository.findById(joiner.getId())).thenReturn(Optional.of(joiner));
+        when(participantRepository.save(any(SessionParticipant.class))).thenReturn(joinerParticipant);
+        when(participantRepository.findBySessionId(session.getId()))
+            .thenReturn(List.of(creatorParticipant, joinerParticipant, favoriteJoinedParticipant));
+        when(friendshipRepository.findFavoriteFriendIdsFollowingUser(creator.getId()))
+            .thenReturn(List.of(favoriteWaiting.getId(), favoriteJoined.getId()));
+
+        service.joinSession(session.getId(), joiner.getId());
+
+        verify(pushService).notifyFriendJoinedRun(
+            favoriteWaiting.getId(), joiner.getName(), creator.getName(), session.getId());
+        verify(pushService, never()).notifyFriendJoinedRun(
+            favoriteJoined.getId(), joiner.getName(), creator.getName(), session.getId());
+    }
+
+    @Test
+    void activeRunsIncludeSoloRunsOnlyFromFavoriteFriends() {
+        User viewer = user("viewer");
+        User favoriteCreator = user("favorite-creator");
+        User regularCreator = user("regular-creator");
+        Session favoriteSession = activeSession(favoriteCreator, null, Instant.now());
+        Session regularSession = activeSession(regularCreator, null, Instant.now());
+
+        when(sessionRepository.findActiveGroupSessionsForUser(viewer.getId())).thenReturn(List.of());
+        when(friendshipRepository.findFavoriteFriendIdsForUser(viewer.getId()))
+            .thenReturn(List.of(favoriteCreator.getId()));
+        when(sessionRepository.findActiveSoloSessionsByCreatorIds(any(), any()))
+            .thenReturn(List.of(favoriteSession));
+        when(participantRepository.countBySessionIdAndLeftAtIsNull(favoriteSession.getId())).thenReturn(1L);
+
+        List<com.runpack.api.dto.response.ActiveRunResponse> activeRuns = service.getActiveRuns(viewer.getId());
+
+        assertThat(activeRuns).hasSize(1);
+        assertThat(activeRuns.get(0).creatorId()).isEqualTo(favoriteCreator.getId().toString());
+        verify(sessionRepository, never()).findActiveSoloSessionsByCreatorIds(
+            org.mockito.ArgumentMatchers.argThat(ids -> ids.contains(regularCreator.getId())),
+            any()
+        );
+    }
+
     private User user(String username) {
         User user = new User();
         user.setId(UUID.randomUUID());

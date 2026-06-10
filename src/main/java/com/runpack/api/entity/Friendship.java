@@ -31,6 +31,12 @@ public class Friendship {
     @Enumerated(EnumType.STRING)
     private Status status;
 
+    @Column(nullable = false)
+    private boolean requesterFavorite = false;
+
+    @Column(nullable = false)
+    private boolean addresseeFavorite = false;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

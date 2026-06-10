@@ -113,6 +113,27 @@ public class FriendshipService {
         friendshipRepository.delete(friendship);
     }
 
+    @Transactional
+    public FriendshipResponse updateFavorite(UUID friendshipId, UUID userId, boolean favorite) {
+        Friendship friendship = findOrThrow(friendshipId);
+        boolean isRequester = friendship.getRequester().getId().equals(userId);
+        boolean isAddressee = friendship.getAddressee().getId().equals(userId);
+        if (!isRequester && !isAddressee) {
+            throw new ForbiddenException("Sem permissão");
+        }
+        if (friendship.getStatus() != Friendship.Status.accepted) {
+            throw new BadRequestException("Somente amigos aceitos podem ser acompanhados");
+        }
+
+        if (isRequester) {
+            friendship.setRequesterFavorite(favorite);
+        } else {
+            friendship.setAddresseeFavorite(favorite);
+        }
+
+        return toResponse(friendship, userId);
+    }
+
     private Friendship findOrThrow(UUID id) {
         return friendshipRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("Amizade não encontrada"));
@@ -124,9 +145,11 @@ public class FriendshipService {
     }
 
     private FriendshipResponse toResponse(Friendship f, UUID currentUserId) {
-        User other = f.getRequester().getId().equals(currentUserId) ? f.getAddressee() : f.getRequester();
+        boolean currentUserIsRequester = f.getRequester().getId().equals(currentUserId);
+        User other = currentUserIsRequester ? f.getAddressee() : f.getRequester();
+        boolean favorite = currentUserIsRequester ? f.isRequesterFavorite() : f.isAddresseeFavorite();
         FriendshipResponse.FriendUser friendUser = new FriendshipResponse.FriendUser(
             other.getId(), other.getName(), other.getUsername(), other.getAvatarUrl());
-        return new FriendshipResponse(f.getId(), friendUser, f.getStatus().name(), f.getCreatedAt());
+        return new FriendshipResponse(f.getId(), friendUser, f.getStatus().name(), favorite, f.getCreatedAt());
     }
 }

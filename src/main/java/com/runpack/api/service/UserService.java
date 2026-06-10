@@ -127,6 +127,7 @@ public class UserService {
             Optional<Friendship> friendship = friendshipRepository.findBetween(currentUserId, u.getId());
             String relation = "none";
             UUID friendshipId = null;
+            boolean favorite = false;
             if (friendship.isPresent()) {
                 Friendship f = friendship.get();
                 friendshipId = f.getId();
@@ -136,8 +137,12 @@ public class UserService {
                         ? "pending_sent" : "pending_received";
                     default -> "none";
                 };
+                favorite = f.getRequester().getId().equals(currentUserId)
+                    ? f.isRequesterFavorite()
+                    : f.isAddresseeFavorite();
             }
-            return new UserSearchResult(u.getId(), u.getName(), u.getUsername(), u.getAvatarUrl(), friendshipId, relation);
+            return new UserSearchResult(
+                u.getId(), u.getName(), u.getUsername(), u.getAvatarUrl(), friendshipId, relation, favorite);
         }).toList();
     }
 
