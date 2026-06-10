@@ -32,7 +32,7 @@ public class SessionController {
 
     @GetMapping("/active")
     public List<ActiveRunResponse> getActiveRuns(@CurrentUser UUID currentUserId) {
-        return sessionService.getActiveGroupRuns(currentUserId);
+        return sessionService.getActiveRuns(currentUserId);
     }
 
     @GetMapping("/{id:[0-9a-fA-F-]{36}}")

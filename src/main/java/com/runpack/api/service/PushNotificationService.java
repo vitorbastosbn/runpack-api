@@ -86,6 +86,18 @@ public class PushNotificationService {
             "runpack://achievements");
     }
 
+    public void notifyFriendRunStarted(UUID recipientId, String creatorName, UUID sessionId) {
+        send(recipientId, creatorName + " está correndo!",
+            "Entre e corra junto nos próximos 15 min",
+            "runpack://sessions/" + sessionId);
+    }
+
+    public void notifyFriendJoinedRun(UUID recipientId, String joinerName, String creatorName, UUID sessionId) {
+        send(recipientId, joinerName + " entrou na corrida de " + creatorName,
+            "Ainda dá tempo — entre agora!",
+            "runpack://sessions/" + sessionId);
+    }
+
     public void notifyRunResult(UUID userId, double distanceM, long timeMs, UUID sessionId) {
         String distKm = String.format("%.2f", distanceM / 1000);
         String time = formatDuration(timeMs);

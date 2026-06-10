@@ -44,6 +44,12 @@ public class UserController {
         return ResponseEntity.ok(userService.updateMe(userId, request));
     }
 
+    @DeleteMapping("/users/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMe(@CurrentUser UUID userId) {
+        userService.deleteAccount(userId);
+    }
+
     @GetMapping("/users/me/stats")
     public ResponseEntity<List<WeeklyStatsEntry>> getMyStats(@CurrentUser UUID userId) {
         return ResponseEntity.ok(userService.getWeeklyStats(userId));

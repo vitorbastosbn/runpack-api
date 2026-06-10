@@ -10,6 +10,7 @@ import com.runpack.api.entity.SessionParticipant;
 import com.runpack.api.entity.SessionTelemetry;
 import com.runpack.api.entity.User;
 import com.runpack.api.exception.BadRequestException;
+import com.runpack.api.repository.FriendshipRepository;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
 import com.runpack.api.repository.RunResultRepository;
@@ -44,6 +45,7 @@ class SessionServiceTests {
     private UserRepository userRepository;
     private GroupMemberRepository groupMemberRepository;
     private GroupRepository groupRepository;
+    private FriendshipRepository friendshipRepository;
     private SessionWebSocketService wsService;
     private AchievementService achievementService;
     private PushNotificationService pushService;
@@ -58,6 +60,7 @@ class SessionServiceTests {
         groupRepository = mock(GroupRepository.class);
         groupMemberRepository = mock(GroupMemberRepository.class);
         userRepository = mock(UserRepository.class);
+        friendshipRepository = mock(FriendshipRepository.class);
         wsService = mock(SessionWebSocketService.class);
         achievementService = mock(AchievementService.class);
         pushService = mock(PushNotificationService.class);
@@ -70,6 +73,7 @@ class SessionServiceTests {
             groupRepository,
             groupMemberRepository,
             userRepository,
+            friendshipRepository,
             wsService,
             achievementService,
             pushService

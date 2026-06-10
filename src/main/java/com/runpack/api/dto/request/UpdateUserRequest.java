@@ -1,3 +1,3 @@
 package com.runpack.api.dto.request;
 
-public record UpdateUserRequest(String name, String avatarUrl) {}
+public record UpdateUserRequest(String name, String avatarUrl, String username) {}

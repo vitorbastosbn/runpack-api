@@ -8,6 +8,7 @@ import com.runpack.api.dto.response.GroupResponse;
 import com.runpack.api.dto.response.GroupRunSummaryResponse;
 import com.runpack.api.entity.Group;
 import com.runpack.api.entity.GroupMember;
+import com.runpack.api.entity.InviteToken;
 import com.runpack.api.entity.RunResult;
 import com.runpack.api.entity.User;
 import com.runpack.api.exception.BadRequestException;
@@ -17,6 +18,7 @@ import com.runpack.api.exception.NotFoundException;
 import com.runpack.api.entity.Session;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
+import com.runpack.api.repository.InviteTokenRepository;
 import com.runpack.api.repository.RunResultRepository;
 import com.runpack.api.repository.SessionRepository;
 import com.runpack.api.repository.UserRepository;
@@ -40,17 +42,20 @@ public class GroupService {
     private final UserRepository userRepository;
     private final SessionRepository sessionRepository;
     private final RunResultRepository runResultRepository;
+    private final InviteTokenRepository inviteTokenRepository;
 
     public GroupService(GroupRepository groupRepository,
                         GroupMemberRepository groupMemberRepository,
                         UserRepository userRepository,
                         SessionRepository sessionRepository,
-                        RunResultRepository runResultRepository) {
+                        RunResultRepository runResultRepository,
+                        InviteTokenRepository inviteTokenRepository) {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
         this.runResultRepository = runResultRepository;
+        this.inviteTokenRepository = inviteTokenRepository;
     }
 
     /**
@@ -166,6 +171,12 @@ public class GroupService {
     public void deleteGroup(UUID groupId, UUID userId) {
         findGroup(groupId);
         requireAdmin(groupId, userId);
+        // Null out group_id on sessions (preserves run history, removes FK ref)
+        sessionRepository.clearGroupId(groupId);
+        // Delete group invite tokens
+        inviteTokenRepository.deleteByTypeAndTargetId(InviteToken.Type.group, groupId);
+        // Bulk delete members — clearAutomatically evicts the GroupMember loaded by requireAdmin
+        groupMemberRepository.deleteAllByGroupId(groupId);
         groupRepository.deleteById(groupId);
     }
 

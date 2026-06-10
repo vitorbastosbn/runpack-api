@@ -8,4 +8,5 @@ import java.util.UUID;
 
 public interface InviteTokenRepository extends JpaRepository<InviteToken, UUID> {
     Optional<InviteToken> findByTokenHash(String tokenHash);
+    void deleteByTypeAndTargetId(InviteToken.Type type, UUID targetId);
 }

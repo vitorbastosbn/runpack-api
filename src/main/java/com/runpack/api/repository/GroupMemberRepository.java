@@ -2,6 +2,7 @@ package com.runpack.api.repository;
 
 import com.runpack.api.entity.GroupMember;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -27,4 +28,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     boolean haveGroupInCommon(@Param("userId1") UUID userId1, @Param("userId2") UUID userId2);
 
     List<GroupMember> findByUserId(UUID userId);
+
+    @Modifying(clearAutomatically = true)
+    @Query("DELETE FROM GroupMember gm WHERE gm.group.id = :groupId")
+    void deleteAllByGroupId(@Param("groupId") UUID groupId);
 }

@@ -7,6 +7,7 @@ import com.runpack.api.dto.response.WeeklyStatsEntry;
 import com.runpack.api.entity.Friendship;
 import com.runpack.api.entity.User;
 import com.runpack.api.exception.BadRequestException;
+import com.runpack.api.exception.ConflictException;
 import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.NotFoundException;
 import com.runpack.api.repository.FriendshipRepository;
@@ -57,10 +58,29 @@ public class UserService {
         if (request.name() != null && !request.name().isBlank()) {
             user.setName(request.name());
         }
-        if (request.avatarUrl() != null) {
-            user.setAvatarUrl(request.avatarUrl());
+        // Avatar comes from Google and is not editable in-app — ignored on purpose.
+        if (request.username() != null && !request.username().equals(user.getUsername())) {
+            String username = request.username().trim();
+            if (username.length() < 3 || username.length() > 20) {
+                throw new BadRequestException("Username deve ter entre 3 e 20 caracteres");
+            }
+            if (!username.matches("[a-zA-Z0-9._#]+")) {
+                throw new BadRequestException("Username pode conter apenas letras, números, ponto, underline e #");
+            }
+            if (userRepository.existsByUsername(username)) {
+                throw new ConflictException("Username já está em uso");
+            }
+            user.setUsername(username);
         }
         return buildProfile(user);
+    }
+
+    @Transactional
+    public void deleteAccount(UUID userId) {
+        User user = findOrThrow(userId);
+        // FK cascades (V4) remove friendships, memberships, sessions, telemetry,
+        // results, achievements, push tokens and groups the user created.
+        userRepository.delete(user);
     }
 
     public UserResponse getUserById(UUID targetId, UUID currentUserId) {

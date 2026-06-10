@@ -20,14 +20,18 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @Transactional(readOnly = true)
 public class SessionService {
 
     private static final int MAX_PARTICIPANTS = 20;
+    private static final int MAX_PARTICIPANTS_SOLO = 10;
     private static final Duration GROUP_JOIN_WINDOW = Duration.ofMinutes(15);
 
     private final SessionRepository sessionRepository;
@@ -37,6 +41,7 @@ public class SessionService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final UserRepository userRepository;
+    private final FriendshipRepository friendshipRepository;
     private final SessionWebSocketService wsService;
     private final AchievementService achievementService;
     private final PushNotificationService pushService;
@@ -48,6 +53,7 @@ public class SessionService {
                           GroupRepository groupRepository,
                           GroupMemberRepository groupMemberRepository,
                           UserRepository userRepository,
+                          FriendshipRepository friendshipRepository,
                           SessionWebSocketService wsService,
                           AchievementService achievementService,
                           PushNotificationService pushService) {
@@ -58,6 +64,7 @@ public class SessionService {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.userRepository = userRepository;
+        this.friendshipRepository = friendshipRepository;
         this.wsService = wsService;
         this.achievementService = achievementService;
         this.pushService = pushService;
@@ -92,14 +99,19 @@ public class SessionService {
         participant.setUser(creator);
         participantRepository.save(participant);
 
-        // Notify group members (except creator) that session started
+        final Session finalSession = session;
+        final User finalCreator = creator;
         if (group != null) {
             final Group finalGroup = group;
-            final Session finalSession = session;
             groupMemberRepository.findByGroup_IdOrderByJoinedAtAsc(finalGroup.getId()).stream()
                 .filter(m -> !m.getUser().getId().equals(creatorId))
                 .forEach(m -> pushService.notifySessionStarted(
                     m.getUser().getId(), finalGroup.getName(), finalSession.getId()));
+        } else {
+            // Solo run — notify all friends
+            friendshipRepository.findFriendIds(creatorId)
+                .forEach(id -> pushService.notifyFriendRunStarted(
+                    id, finalCreator.getName(), finalSession.getId()));
         }
 
         return toResponse(session, participant.getJoinedAt(), creatorId);
@@ -119,12 +131,13 @@ public class SessionService {
         if (existing.isPresent()) {
             return toResponse(session, existing.get().getJoinedAt(), userId);
         }
-        if (isGroupSession(session) && isJoinWindowClosed(session)) {
-            finishExpiredGroupSessionIfSolo(session);
+        if (isJoinWindowClosed(session)) {
+            if (isGroupSession(session)) finishExpiredGroupSessionIfSolo(session);
             throw new BadRequestException("Janela de entrada encerrada");
         }
         long activeCount = participantRepository.countBySessionIdAndLeftAtIsNull(sessionId);
-        if (activeCount >= MAX_PARTICIPANTS) {
+        int limit = isGroupSession(session) ? MAX_PARTICIPANTS : MAX_PARTICIPANTS_SOLO;
+        if (activeCount >= limit) {
             throw new ConflictException("Sessão com número máximo de participantes");
         }
 
@@ -138,19 +151,54 @@ public class SessionService {
 
         wsService.publishParticipantJoined(sessionId.toString(), user);
 
+        // Solo run: notify remaining friends that someone joined
+        if (!isGroupSession(session)) {
+            final User joinedUser = user;
+            final Session finalSession = session;
+            Set<UUID> joined = participantRepository.findBySessionId(sessionId)
+                .stream().map(p -> p.getUser().getId()).collect(Collectors.toSet());
+            friendshipRepository.findFriendIds(finalSession.getCreatedBy().getId()).stream()
+                .filter(id -> !joined.contains(id))
+                .forEach(id -> pushService.notifyFriendJoinedRun(
+                    id, joinedUser.getName(), finalSession.getCreatedBy().getName(), finalSession.getId()));
+        }
+
         return toResponse(session, participant.getJoinedAt(), userId);
     }
 
-    /** Active runs in the groups the user belongs to (for the home + dedicated screen). */
-    public List<com.runpack.api.dto.response.ActiveRunResponse> getActiveGroupRuns(UUID userId) {
-        return sessionRepository.findActiveGroupSessionsForUser(userId).stream()
-            .map(s -> new com.runpack.api.dto.response.ActiveRunResponse(
-                s.getId().toString(),
-                s.getGroup().getId().toString(),
-                s.getGroup().getName(),
-                (int) participantRepository.countBySessionIdAndLeftAtIsNull(s.getId()),
-                s.getStartedAt()))
-            .toList();
+    /** Active runs: group runs the user belongs to + solo runs from friends within the 15-min window. */
+    public List<com.runpack.api.dto.response.ActiveRunResponse> getActiveRuns(UUID userId) {
+        List<com.runpack.api.dto.response.ActiveRunResponse> groupRuns =
+            sessionRepository.findActiveGroupSessionsForUser(userId).stream()
+                .map(this::toActiveRunResponse)
+                .toList();
+
+        List<UUID> friendIds = friendshipRepository.findFriendIds(userId);
+        if (friendIds.isEmpty()) {
+            return groupRuns;
+        }
+
+        Instant windowStart = Instant.now().minus(GROUP_JOIN_WINDOW);
+        List<com.runpack.api.dto.response.ActiveRunResponse> friendRuns =
+            sessionRepository.findActiveSoloSessionsByCreatorIds(friendIds, windowStart).stream()
+                .map(this::toActiveRunResponse)
+                .toList();
+
+        return Stream.concat(groupRuns.stream(), friendRuns.stream()).toList();
+    }
+
+    private com.runpack.api.dto.response.ActiveRunResponse toActiveRunResponse(Session s) {
+        User creator = s.getCreatedBy();
+        return new com.runpack.api.dto.response.ActiveRunResponse(
+            s.getId().toString(),
+            s.getGroup() != null ? s.getGroup().getId().toString() : null,
+            s.getGroup() != null ? s.getGroup().getName() : null,
+            creator.getId().toString(),
+            creator.getName(),
+            creator.getAvatarUrl(),
+            (int) participantRepository.countBySessionIdAndLeftAtIsNull(s.getId()),
+            s.getStartedAt()
+        );
     }
 
     public SessionDetailResponse getSession(UUID sessionId, UUID currentUserId) {

@@ -37,4 +37,14 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     Optional<Friendship> findBetween(@Param("a") UUID a, @Param("b") UUID b);
 
     boolean existsByRequester_IdAndAddressee_Id(UUID requesterId, UUID addresseeId);
+
+    @Query("""
+        SELECT CASE WHEN f.requester.id = :userId
+                    THEN f.addressee.id
+                    ELSE f.requester.id END
+        FROM Friendship f
+        WHERE (f.requester.id = :userId OR f.addressee.id = :userId)
+          AND f.status = com.runpack.api.entity.Friendship.Status.accepted
+        """)
+    List<UUID> findFriendIds(@Param("userId") UUID userId);
 }
