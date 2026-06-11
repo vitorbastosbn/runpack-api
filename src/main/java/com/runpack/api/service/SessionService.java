@@ -10,6 +10,7 @@ import com.runpack.api.exception.BadRequestException;
 import com.runpack.api.exception.ConflictException;
 import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.NotFoundException;
+import com.runpack.api.exception.PremiumRequiredException;
 import com.runpack.api.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -32,6 +33,7 @@ public class SessionService {
 
     private static final int MAX_PARTICIPANTS = 20;
     private static final int MAX_PARTICIPANTS_SOLO = 10;
+    private static final int FREE_MAX_PARTICIPANTS = 5;
     private static final Duration GROUP_JOIN_WINDOW = Duration.ofMinutes(15);
 
     private final SessionRepository sessionRepository;
@@ -136,9 +138,17 @@ public class SessionService {
             throw new BadRequestException("Janela de entrada encerrada");
         }
         long activeCount = participantRepository.countBySessionIdAndLeftAtIsNull(sessionId);
-        int limit = isGroupSession(session) ? MAX_PARTICIPANTS : MAX_PARTICIPANTS_SOLO;
-        if (activeCount >= limit) {
-            throw new ConflictException("Sessão com número máximo de participantes");
+        // Capacidade da sessão é definida pelo plano do criador.
+        if (!session.getCreatedBy().isPremium()) {
+            if (activeCount >= FREE_MAX_PARTICIPANTS) {
+                throw new PremiumRequiredException("SESSION_LIMIT_REACHED",
+                    "Sessões do plano gratuito aceitam até " + FREE_MAX_PARTICIPANTS + " participantes");
+            }
+        } else {
+            int limit = isGroupSession(session) ? MAX_PARTICIPANTS : MAX_PARTICIPANTS_SOLO;
+            if (activeCount >= limit) {
+                throw new ConflictException("Sessão com número máximo de participantes");
+            }
         }
 
         User user = userRepository.findById(userId)

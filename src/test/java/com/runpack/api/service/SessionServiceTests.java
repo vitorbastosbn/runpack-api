@@ -267,6 +267,62 @@ class SessionServiceTests {
         );
     }
 
+    @Test
+    void freeCreatorSessionRejectsSixthParticipant() {
+        User creator = user("creator"); // plan default = free
+        User joiner = user("joiner");
+        Group group = group(creator);
+        Session session = activeSession(creator, group, Instant.now());
+
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findBySessionIdAndUserId(session.getId(), joiner.getId()))
+            .thenReturn(Optional.empty());
+        when(participantRepository.countBySessionIdAndLeftAtIsNull(session.getId())).thenReturn(5L);
+
+        assertThatThrownBy(() -> service.joinSession(session.getId(), joiner.getId()))
+            .isInstanceOf(com.runpack.api.exception.PremiumRequiredException.class)
+            .satisfies(ex -> assertThat(
+                ((com.runpack.api.exception.PremiumRequiredException) ex).getCode())
+                .isEqualTo("SESSION_LIMIT_REACHED"));
+        verify(participantRepository, never()).save(any(SessionParticipant.class));
+    }
+
+    @Test
+    void freeCreatorSessionAcceptsFifthParticipant() {
+        User creator = user("creator");
+        User joiner = user("joiner");
+        Group group = group(creator);
+        Session session = activeSession(creator, group, Instant.now());
+
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findBySessionIdAndUserId(session.getId(), joiner.getId()))
+            .thenReturn(Optional.empty());
+        when(participantRepository.countBySessionIdAndLeftAtIsNull(session.getId())).thenReturn(4L);
+        when(userRepository.findById(joiner.getId())).thenReturn(Optional.of(joiner));
+
+        service.joinSession(session.getId(), joiner.getId());
+
+        verify(participantRepository).save(any(SessionParticipant.class));
+    }
+
+    @Test
+    void premiumCreatorGroupSessionKeepsLimit20() {
+        User creator = user("creator");
+        creator.setPlan(User.Plan.premium);
+        User joiner = user("joiner");
+        Group group = group(creator);
+        Session session = activeSession(creator, group, Instant.now());
+
+        when(sessionRepository.findById(session.getId())).thenReturn(Optional.of(session));
+        when(participantRepository.findBySessionIdAndUserId(session.getId(), joiner.getId()))
+            .thenReturn(Optional.empty());
+        when(participantRepository.countBySessionIdAndLeftAtIsNull(session.getId())).thenReturn(19L);
+        when(userRepository.findById(joiner.getId())).thenReturn(Optional.of(joiner));
+
+        service.joinSession(session.getId(), joiner.getId());
+        verify(participantRepository).save(any(SessionParticipant.class));
+    }
+
     private User user(String username) {
         User user = new User();
         user.setId(UUID.randomUUID());
