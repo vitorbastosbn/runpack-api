@@ -160,11 +160,13 @@ public class UserService {
 
     public static UserResponse toResponse(User user) {
         return new UserResponse(user.getId(), user.getName(), user.getUsername(),
-            user.getEmail(), user.getAvatarUrl(), 0, 0.0, 0.0, user.getCreatedAt());
+            user.getEmail(), user.getAvatarUrl(), 0, 0.0, 0.0, user.getCreatedAt(),
+            user.getPlan().name(), user.getPlanExpiresAt());
     }
 
     private static UserResponse toResponse(User user, int totalRuns, double totalDistanceM, double bestPaceSkm) {
         return new UserResponse(user.getId(), user.getName(), user.getUsername(),
-            user.getEmail(), user.getAvatarUrl(), totalRuns, totalDistanceM, bestPaceSkm, user.getCreatedAt());
+            user.getEmail(), user.getAvatarUrl(), totalRuns, totalDistanceM, bestPaceSkm, user.getCreatedAt(),
+            user.getPlan().name(), user.getPlanExpiresAt());
     }
 }

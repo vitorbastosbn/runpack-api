@@ -12,5 +12,7 @@ public record UserResponse(
     int totalRuns,
     double totalDistanceM,
     double bestPaceSkm,
-    Instant createdAt
+    Instant createdAt,
+    String plan,
+    Instant planExpiresAt
 ) {}
