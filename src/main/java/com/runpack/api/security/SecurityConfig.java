@@ -27,6 +27,7 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/auth/social").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/webhooks/revenuecat").permitAll()
                         .requestMatchers(HttpMethod.GET, "/invites/{token}").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .anyRequest().authenticated()
