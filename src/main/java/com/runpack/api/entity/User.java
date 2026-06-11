@@ -37,12 +37,27 @@ public class User {
     @Column(nullable = false)
     private String providerId;
 
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private Plan plan = Plan.free;
+
+    private Instant planExpiresAt;
+
+    @Column(unique = true)
+    private String revenuecatId;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
     private Instant updatedAt;
 
     public enum Provider { google }
+
+    public enum Plan { free, premium }
+
+    public boolean isPremium() {
+        return plan == Plan.premium;
+    }
 
     @PrePersist
     void onCreate() {
