@@ -13,6 +13,7 @@ import com.runpack.api.exception.ConflictException;
 import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.GoneException;
 import com.runpack.api.exception.NotFoundException;
+import com.runpack.api.exception.PremiumRequiredException;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
 import com.runpack.api.repository.InviteTokenRepository;
@@ -111,6 +112,14 @@ public class InviteService {
             Group group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new NotFoundException("Grupo não encontrado"));
             User user = findUser(userId);
+            long memberships = groupRepository.countByMemberId(userId);
+            if (!user.isPremium() && memberships >= 3) {
+                throw new PremiumRequiredException("GROUP_LIMIT_REACHED",
+                    "Plano gratuito permite participar de até 3 grupos");
+            }
+            if (memberships >= 10) {
+                throw new BadRequestException("Limite de 10 grupos atingido");
+            }
             GroupMember member = new GroupMember();
             member.setGroup(group);
             member.setUser(user);

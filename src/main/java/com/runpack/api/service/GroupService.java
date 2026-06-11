@@ -15,6 +15,7 @@ import com.runpack.api.exception.BadRequestException;
 import com.runpack.api.exception.ConflictException;
 import com.runpack.api.exception.ForbiddenException;
 import com.runpack.api.exception.NotFoundException;
+import com.runpack.api.exception.PremiumRequiredException;
 import com.runpack.api.entity.Session;
 import com.runpack.api.repository.GroupMemberRepository;
 import com.runpack.api.repository.GroupRepository;
@@ -36,6 +37,7 @@ public class GroupService {
 
     private static final int MAX_MEMBERS = 50;
     private static final int MAX_GROUPS_PER_USER = 10;
+    private static final int FREE_MAX_GROUPS = 3;
 
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -129,12 +131,22 @@ public class GroupService {
         return page.map(g -> toResponse(g, userId));
     }
 
-    @Transactional
-    public GroupResponse createGroup(UUID userId, CreateGroupRequest request) {
-        if (groupRepository.countByMemberId(userId) >= MAX_GROUPS_PER_USER) {
+    /** Free: máx. 3 memberships (criados + entrados). Premium: limite global de 10. */
+    private void requireGroupCapacity(User user, UUID userId) {
+        long memberships = groupRepository.countByMemberId(userId);
+        if (!user.isPremium() && memberships >= FREE_MAX_GROUPS) {
+            throw new PremiumRequiredException("GROUP_LIMIT_REACHED",
+                "Plano gratuito permite participar de até " + FREE_MAX_GROUPS + " grupos");
+        }
+        if (memberships >= MAX_GROUPS_PER_USER) {
             throw new BadRequestException("Limite de " + MAX_GROUPS_PER_USER + " grupos atingido");
         }
+    }
+
+    @Transactional
+    public GroupResponse createGroup(UUID userId, CreateGroupRequest request) {
         User creator = findUser(userId);
+        requireGroupCapacity(creator, userId);
         Group group = new Group();
         group.setName(request.name());
         group.setDescription(request.description());
@@ -199,6 +211,7 @@ public class GroupService {
             throw new BadRequestException("Limite de " + MAX_MEMBERS + " membros atingido");
         }
         User target = findUser(targetUserId);
+        requireGroupCapacity(target, targetUserId);
         Group group = findGroup(groupId);
         GroupMember member = new GroupMember();
         member.setGroup(group);
