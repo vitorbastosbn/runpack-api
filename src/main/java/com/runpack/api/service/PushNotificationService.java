@@ -1,9 +1,11 @@
 package com.runpack.api.service;
 
 import com.runpack.api.entity.PushToken;
+import com.runpack.api.entity.User;
 import com.runpack.api.entity.UserNotificationPreferences;
 import com.runpack.api.repository.PushTokenRepository;
 import com.runpack.api.repository.UserNotificationPreferencesRepository;
+import com.runpack.api.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.http.ResponseEntity;
@@ -27,13 +29,21 @@ public class PushNotificationService {
     private final PushTokenRepository pushTokenRepository;
     private final UserNotificationPreferencesRepository prefsRepository;
     private final RestTemplate restTemplate;
+    private final UserRepository userRepository;
 
     public PushNotificationService(PushTokenRepository pushTokenRepository,
                                    UserNotificationPreferencesRepository prefsRepository,
-                                   RestTemplate restTemplate) {
+                                   RestTemplate restTemplate,
+                                   UserRepository userRepository) {
         this.pushTokenRepository = pushTokenRepository;
         this.prefsRepository = prefsRepository;
         this.restTemplate = restTemplate;
+        this.userRepository = userRepository;
+    }
+
+    /** Notificações de corrida ao vivo são exclusivas do plano premium. */
+    private boolean isPremium(UUID userId) {
+        return userRepository.findById(userId).map(User::isPremium).orElse(false);
     }
 
     @Async
@@ -83,6 +93,7 @@ public class PushNotificationService {
     }
 
     public void notifySessionStarted(UUID memberId, String groupName, UUID sessionId) {
+        if (!isPremium(memberId)) return;
         if (!isPushEnabled(memberId, UserNotificationPreferences::isSessionStarted)) return;
         send(memberId, "Corrida começou! 🏃",
             "O grupo " + groupName + " está correndo agora",
@@ -97,6 +108,7 @@ public class PushNotificationService {
     }
 
     public void notifyFriendRunStarted(UUID recipientId, String creatorName, UUID sessionId) {
+        if (!isPremium(recipientId)) return;
         if (!isPushEnabled(recipientId, UserNotificationPreferences::isFriendRunStarted)) return;
         send(recipientId, creatorName + " está correndo!",
             "Entre e corra junto nos próximos 15 min",
@@ -104,6 +116,7 @@ public class PushNotificationService {
     }
 
     public void notifyFriendJoinedRun(UUID recipientId, String joinerName, String creatorName, UUID sessionId) {
+        if (!isPremium(recipientId)) return;
         if (!isPushEnabled(recipientId, UserNotificationPreferences::isFriendJoinedRun)) return;
         send(recipientId, joinerName + " entrou na corrida de " + creatorName,
             "Ainda dá tempo — entre agora!",
